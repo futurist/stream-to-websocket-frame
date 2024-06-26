@@ -1,9 +1,9 @@
-const OPCODE_CONTINUATION = 0;
-const OPCODE_TEXT = 1;
-const OPCODE_BINARY = 2;
-const OPCODE_CLOSE = 8;
-const OPCODE_PING = 9;
-const OPCODE_PONG = 10;
+export const OPCODE_CONTINUATION = 0;
+export const OPCODE_TEXT = 1;
+export const OPCODE_BINARY = 2;
+export const OPCODE_CLOSE = 8;
+export const OPCODE_PING = 9;
+export const OPCODE_PONG = 10;
 
 export class StreamToWebSocket {
     constructor(stream, config) {
@@ -11,6 +11,7 @@ export class StreamToWebSocket {
         this.config = config;
         this.onFrame = config.onFrame || (() => { });
         this.onClosed = config.onClosed || (() => { });
+        this.onError = config.onError || ((err) => { console.error(err) });
         this.dataBuffer = new ArrayBuffer(0);
     }
 
@@ -46,12 +47,22 @@ export class StreamToWebSocket {
                 applicationData[j] = data[i];
             }
         }
+
+        const frame = {
+            isFinal: finalFragment,
+            opcode,
+            masked,
+            payloadLength,
+            maskingKey: maskingKey,
+            payloadData: applicationData,
+        };
+        this.onFrame(frame);
+
         this.dataBuffer = this.dataBuffer.slice(i);
         if (finalFragment) {
             if (this.buildingFrame != null) {
                 if (opcode != OPCODE_CONTINUATION) {
-                    console.error("incomplete frame!");
-                    this.close();
+                    this.close("incomplete frame!");
                     return true;
                 }
                 applicationData = joinBuffers(
@@ -83,14 +94,10 @@ export class StreamToWebSocket {
                     this.sendPong(applicationData);
                     break;
                 case OPCODE_CONTINUATION:
-                    console.error("initial frame can't be continuation!");
-                    this.close();
+                    this.close("initial frame can't be continuation!");
                     break;
                 default:
-                    console.error(
-                        "unhandled websocket opcode 0x" + opcode.toString(16).toUpperCase()
-                    );
-                    this.close();
+                    this.close("unhandled websocket opcode 0x" + opcode.toString(16).toUpperCase());
                     break;
             }
         } else {
@@ -98,8 +105,7 @@ export class StreamToWebSocket {
                 this.buildingFrame = { opcode: opcode, dataBuffer: applicationData };
             else {
                 if (opcode != OPCODE_CONTINUATION) {
-                    console.error("incomplete frame!");
-                    this.close();
+                    this.close("incomplete frame!");
                 } else {
                     this.buildingFrame.dataBuffer = joinBuffers(
                         this.buildingFrame.dataBuffer,
@@ -125,7 +131,8 @@ export class StreamToWebSocket {
         });
     }
 
-    close() {
+    close(errorMessage = '') {
+        this.onError(errorMessage);
         const frameData = new Uint8Array(2);
         frameData[0] = 128 | OPCODE_CLOSE;
         frameData[1] = 0;
