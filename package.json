@@ -12,6 +12,10 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/events": "^3.0.3",
     "typescript": "^5.5.2"
+  },
+  "dependencies": {
+    "events": "^3.3.0"
   }
 }
