@@ -10,8 +10,8 @@ export type Callback = (arg: {
     data?: Uint8Array;
 }) => void;
 export interface Stream {
-    destroy: () => void;
-    write: (data: Uint8Array, callback: Callback) => void;
+    destroy?: () => void;
+    write?: (data: Uint8Array, callback: Callback) => void;
     read: (callback: Callback) => void;
 }
 export interface Frame {
@@ -23,10 +23,10 @@ export interface Frame {
     payloadData: Uint8Array;
 }
 export interface Config {
-    onFrame: (frame: Frame) => void;
+    onFrame?: (frame: Frame) => void;
     onData: (data: string | Uint8Array) => void;
-    onClosed: () => void;
-    onError: (errorMessage: string) => void;
+    onClosed?: () => void;
+    onError?: (errorMessage: string) => void;
 }
 
 export class StreamToWebSocket {
@@ -110,7 +110,7 @@ export class StreamToWebSocket {
                     this.onClosed();
                     if (this.closing) {
                         this.onClosed = () => { };
-                        this.stream.destroy();
+                        this.stream.destroy?.();
                     } else {
                         this.closing = true;
                         this.close();
@@ -166,10 +166,10 @@ export class StreamToWebSocket {
         const frameData = new Uint8Array(2);
         frameData[0] = 128 | OPCODE_CLOSE;
         frameData[1] = 0;
-        this.stream.write(frameData, () => {
+        this.stream.write?.(frameData, () => {
             if (this.closing) {
                 this.onClosed = () => { };
-                this.stream.destroy();
+                this.stream.destroy?.();
             } else {
                 this.closing = true;
             }
@@ -201,7 +201,7 @@ export class StreamToWebSocket {
         for (let j = 0; j < payloadLength; j++, i++) {
             frameData[i] = data[j];
         }
-        this.stream.write(frameData, () => {});
+        this.stream.write?.(frameData, () => {});
     }
 
     sendFrame(data: string | Uint8Array) {
