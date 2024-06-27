@@ -106,6 +106,7 @@ export class StreamToWebSocket {
                     break;
                 case OPCODE_BINARY:
                     this.config.onData(applicationData);
+                    break;
                 case OPCODE_CLOSE:
                     this.onClosed();
                     if (this.closing) {
@@ -153,11 +154,12 @@ export class StreamToWebSocket {
                 this.onClosed = () => { };
                 return;
             }
-            if (readInfo.data) {
+            if (readInfo.data != null) {
                 this.dataBuffer = joinBuffers(this.dataBuffer, readInfo.data);
             }
             while (this.consumeFragment());
-            this.listen();
+            // simulate process.nextTick
+            Promise.resolve().then(() => this.listen());
         });
     }
 
