@@ -11,7 +11,7 @@ export type Callback = (arg: {
 }) => void;
 export interface Stream {
     destroy?: () => void;
-    write?: (data: Uint8Array, callback: Callback) => void;
+    write?: (data: string | Uint8Array, callback: Callback) => void;
     read: (callback: Callback) => void;
 }
 export interface Frame {
