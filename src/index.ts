@@ -5,11 +5,37 @@ export const OPCODE_CLOSE = 8;
 export const OPCODE_PING = 9;
 export const OPCODE_PONG = 10;
 
+export type Callback = (arg: {
+    resultCode?: number;
+    data?: Uint8Array;
+}) => void;
+export interface Stream {
+    destroy: () => void;
+    write: (data: Uint8Array, callback: Callback) => void;
+    read: (callback: Callback) => void;
+}
+export interface Frame {
+    isFinal: boolean;
+    opcode: number;
+    masked: boolean;
+    payloadLength: number;
+    maskingKey: Uint8Array;
+    payloadData: Uint8Array;
+}
+export interface Config {
+    onFrame: (frame: Frame) => void;
+    onData: (data: string | Uint8Array) => void;
+    onClosed: () => void;
+    onError: (errorMessage: string) => void;
+}
+
 export class StreamToWebSocket {
-    constructor(stream, config) {
-        this.stream = stream;
-        this.config = config;
-        this.onFrame = config.onFrame || (() => { });
+    onClosed: () => void;
+    onError: (errorMessage: string) => void;
+    dataBuffer: ArrayBuffer;
+    buildingFrame: {opcode: number, dataBuffer: Uint8Array} | null = null;
+    closing: any;
+    constructor(private stream: Stream, private config: Config) {
         this.onClosed = config.onClosed || (() => { });
         this.onError = config.onError || ((err) => { console.error(err) });
         this.dataBuffer = new ArrayBuffer(0);
@@ -39,7 +65,7 @@ export class StreamToWebSocket {
         if (data.length < payloadLength + i) {
             return false;
         }
-        const applicationData = new Uint8Array(payloadLength);
+        let applicationData = new Uint8Array(payloadLength);
         for (let j = 0; j < payloadLength; j++, i++) {
             if (masked) {
                 applicationData[j] = data[i] ^ maskingKey[j % 4];
@@ -48,15 +74,17 @@ export class StreamToWebSocket {
             }
         }
 
-        const frame = {
-            isFinal: finalFragment,
-            opcode,
-            masked,
-            payloadLength,
-            maskingKey: maskingKey,
-            payloadData: applicationData,
-        };
-        this.onFrame(frame);
+        if (this.config.onFrame) {
+            const frame = {
+                isFinal: finalFragment,
+                opcode,
+                masked,
+                payloadLength,
+                maskingKey: maskingKey,
+                payloadData: applicationData,
+            };
+            this.config.onFrame(frame);
+        }
 
         this.dataBuffer = this.dataBuffer.slice(i);
         if (finalFragment) {
@@ -120,12 +148,14 @@ export class StreamToWebSocket {
     listen() {
         if (this.closing) return;
         this.stream.read((readInfo) => {
-            if (readInfo.resultCode < 0) {
+            if (Number(readInfo.resultCode) < 0) {
                 this.onClosed();
                 this.onClosed = () => { };
                 return;
             }
-            this.dataBuffer = joinBuffers(this.dataBuffer, readInfo.data);
+            if (readInfo.data) {
+                this.dataBuffer = joinBuffers(this.dataBuffer, readInfo.data);
+            }
             while (this.consumeFragment());
             this.listen();
         });
@@ -136,7 +166,7 @@ export class StreamToWebSocket {
         const frameData = new Uint8Array(2);
         frameData[0] = 128 | OPCODE_CLOSE;
         frameData[1] = 0;
-        this.stream.write(frameData.buffer, () => {
+        this.stream.write(frameData, () => {
             if (this.closing) {
                 this.onClosed = () => { };
                 this.stream.destroy();
@@ -146,7 +176,7 @@ export class StreamToWebSocket {
         });
     }
 
-    _sendFrame(opcode, data, masked, finalFragment) {
+    _sendFrame(opcode: number, data: Uint8Array, masked: boolean, finalFragment: boolean) {
         const payloadLength = data.byteLength;
         const totalSize =
             payloadLength +
@@ -171,12 +201,12 @@ export class StreamToWebSocket {
         for (let j = 0; j < payloadLength; j++, i++) {
             frameData[i] = data[j];
         }
-        this.stream.write(frameData.buffer, () => {});
+        this.stream.write(frameData, () => {});
     }
 
-    sendFrame(data) {
-        let dataBuffer;
-        let opcode;
+    sendFrame(data: string | Uint8Array) {
+        let dataBuffer: Uint8Array;
+        let opcode: number;
         if (typeof data == "string") {
             dataBuffer = new Uint8Array(stringToArrayBuffer(data));
             opcode = OPCODE_TEXT;
@@ -193,14 +223,14 @@ export class StreamToWebSocket {
         return true;
     }
 
-    sendPong(data) {
+    sendPong(data: Uint8Array) {
         const dataBuffer = new Uint8Array(data);
         const masked = false;
         const opcode = OPCODE_PONG;
         const finalFragment = true;
         this._sendFrame(opcode, dataBuffer, masked, finalFragment);
     }
-    sendPing(data) {
+    sendPing(data: Uint8Array) {
         const dataBuffer = new Uint8Array(data);
         const masked = false;
         const opcode = OPCODE_PING;
@@ -209,11 +239,12 @@ export class StreamToWebSocket {
     }
 }
 
-function arrayBufferToString(buffer) {
-    return String.fromCharCode.apply(null, new Uint8Array(buffer));
+function arrayBufferToString(buffer: Uint8Array) {
+    const decoder = new TextDecoder('utf-8');
+    return decoder.decode(buffer);
 }
 
-function stringToArrayBuffer(str) {
+function stringToArrayBuffer(str: string) {
     const buf = new ArrayBuffer(str.length);
     const bufView = new Uint8Array(buf);
     for (let i = 0, strLen = str.length; i < strLen; i++) {
@@ -222,9 +253,9 @@ function stringToArrayBuffer(str) {
     return buf;
 }
 
-function joinBuffers(buffer1, buffer2) {
+function joinBuffers(buffer1: ArrayBuffer, buffer2: ArrayBuffer) {
     const tmp = new Uint8Array(buffer1.byteLength + buffer2.byteLength);
     tmp.set(new Uint8Array(buffer1), 0);
     tmp.set(new Uint8Array(buffer2), buffer1.byteLength);
-    return tmp.buffer;
+    return tmp;
 }
